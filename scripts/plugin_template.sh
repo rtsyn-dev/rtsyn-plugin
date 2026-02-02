@@ -15,6 +15,14 @@ trim() {
     echo "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
 }
 
+to_kebab_case() {
+    echo "$1" |
+        sed -E 's/[^a-zA-Z0-9]+/-/g' |
+        sed -E 's/([a-z0-9])([A-Z])/\1-\2/g' |
+        tr '[:upper:]' '[:lower:]' |
+        sed -E 's/^-+|-+$//g'
+}
+
 to_snake_case() {
     echo "$1" |
         sed -E 's/[^a-zA-Z0-9]+/_/g' |
@@ -41,8 +49,6 @@ is_reserved() {
 
 # Read from /dev/tty so curl|bash stays interactive
 read_tty() {
-    # $1 = prompt text
-    # prints prompt to stderr and reads from /dev/tty into REPLY
     printf "%s" "$1" >&2
     IFS= read -r REPLY </dev/tty
 }
@@ -102,8 +108,6 @@ prompt_bool() {
 }
 
 prompt_int() {
-    # $1 = prompt text
-    # prints integer to stdout or exits
     local v
     while true; do
         read_tty "$1"
@@ -128,8 +132,14 @@ BASE_DIR="$(trim "$REPLY")"
 mkdir -p "$BASE_DIR"
 
 PLUGIN_NAME="$(prompt_raw_name "Plugin name (human readable): ")"
+
+# snake_case kind (semantic identifier)
 PLUGIN_KIND="$(to_snake_case "$PLUGIN_NAME")"
-echo "→ plugin kind: $PLUGIN_KIND" >&2
+# kebab-case slug (folder / crate / library filename)
+PLUGIN_SLUG="$(to_kebab_case "$PLUGIN_NAME")"
+
+echo "→ plugin kind (snake_case): $PLUGIN_KIND" >&2
+echo "→ plugin slug (kebab-case): $PLUGIN_SLUG" >&2
 
 read_tty "Description: "
 DESCRIPTION="$REPLY"
@@ -230,10 +240,10 @@ if [ "$MODEL" = "2" ]; then
 fi
 
 ########################################
-# Directories (NO plugins/ prefix)
+# Directories (NO implicit plugins/)
 ########################################
 
-PLUGIN_DIR="$BASE_DIR/$PLUGIN_KIND"
+PLUGIN_DIR="$BASE_DIR/$PLUGIN_SLUG"
 SRC_DIR="$PLUGIN_DIR/src"
 mkdir -p "$SRC_DIR"
 
@@ -252,7 +262,7 @@ EOF
 
 if [ "$MODEL" = "2" ]; then
     cat >>"$PLUGIN_DIR/plugin.toml" <<EOF
-library = "lib$PLUGIN_KIND.so"
+library = "lib$PLUGIN_SLUG.so"
 extendable_inputs = $EXTENDABLE_INPUTS
 auto_extend_inputs = $AUTO_EXTEND_INPUTS
 connection_dependent = $CONNECTION_DEPENDENT
@@ -294,7 +304,7 @@ done
 
 cat >"$PLUGIN_DIR/Cargo.toml" <<EOF
 [package]
-name = "$PLUGIN_KIND"
+name = "$PLUGIN_SLUG"
 version = "0.1.0"
 edition = "2021"
 
@@ -310,7 +320,7 @@ EOF
 # Sources
 ########################################
 
-# 1) Native Rust plugin (always generate src/lib.rs)
+# 1) Native Rust plugin
 if [ "$MODEL" = "1" ]; then
     cat >"$SRC_DIR/lib.rs" <<EOF
 use rtsyn_plugin::{Plugin, PluginContext, PluginError};
@@ -325,7 +335,7 @@ impl Plugin for PluginState {
 EOF
 fi
 
-# 2) FFI Rust dyn (PluginApi) - generate src/lib.rs
+# 2) FFI Rust dyn (PluginApi)
 if [ "$MODEL" = "2" ] && [ "$LANG" = "rust" ]; then
     LIB="$SRC_DIR/lib.rs"
 
