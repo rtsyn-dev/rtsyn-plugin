@@ -1,5 +1,5 @@
-#!/usr/bin/env sh
-set -e
+#!/usr/bin/env bash
+set -Eeuo pipefail
 
 ########################################
 # Config
@@ -39,14 +39,22 @@ is_reserved() {
     return 1
 }
 
+# Read from /dev/tty so curl|bash stays interactive
+read_tty() {
+    # $1 = prompt text
+    # prints prompt to stderr and reads from /dev/tty into REPLY
+    printf "%s" "$1" >&2
+    IFS= read -r REPLY </dev/tty
+}
+
 prompt_raw_name() {
     local prompt="$1"
     local raw
     while true; do
-        read -rp "$prompt" raw
-        raw="$(trim "$raw")"
+        read_tty "$prompt"
+        raw="$(trim "$REPLY")"
         is_valid_name "$raw" || {
-            echo "✖ invalid name"
+            echo "invalid name" >&2
             continue
         }
         echo "$raw"
@@ -62,11 +70,11 @@ prompt_identifier() {
         raw="$(prompt_raw_name "$prompt")"
         norm="$(to_snake_case "$raw")"
         is_reserved "$norm" && {
-            echo "✖ '$norm' is reserved"
+            echo "'$norm' is reserved" >&2
             continue
         }
         case " $used " in *" $norm "*)
-            echo "✖ duplicate name"
+            echo "duplicate name" >&2
             continue
             ;;
         esac
@@ -76,8 +84,10 @@ prompt_identifier() {
 }
 
 prompt_bool() {
+    local v
     while true; do
-        read -rp "(y/n): " v
+        read_tty "(y/n): "
+        v="$(trim "$REPLY")"
         case "$v" in
         y | Y)
             echo "true"
@@ -91,41 +101,59 @@ prompt_bool() {
     done
 }
 
+prompt_int() {
+    # $1 = prompt text
+    # prints integer to stdout or exits
+    local v
+    while true; do
+        read_tty "$1"
+        v="$(trim "$REPLY")"
+        echo "$v" | grep -Eq '^[0-9]+$' && {
+            echo "$v"
+            return
+        }
+        echo "expected integer" >&2
+    done
+}
+
 ########################################
 # Start
 ########################################
 
-echo "=== RTSyn Plugin Generator ==="
+echo "=== RTSyn Plugin Generator ===" >&2
 
-read -rp "Plugin base directory (default ./): " BASE_DIR
-BASE_DIR="$(trim "$BASE_DIR")"
+read_tty "Plugin base directory (default ./): "
+BASE_DIR="$(trim "$REPLY")"
 [ -z "$BASE_DIR" ] && BASE_DIR="."
 mkdir -p "$BASE_DIR"
 
 PLUGIN_NAME="$(prompt_raw_name "Plugin name (human readable): ")"
 PLUGIN_KIND="$(to_snake_case "$PLUGIN_NAME")"
-echo "→ plugin kind: $PLUGIN_KIND"
+echo "→ plugin kind: $PLUGIN_KIND" >&2
 
-read -rp "Description: " DESCRIPTION
+read_tty "Description: "
+DESCRIPTION="$REPLY"
 
-echo "Plugin model?"
-echo "1) Native Rust (Plugin trait)"
-echo "2) FFI (shared library)"
-read -rp "#? " MODEL
+echo "Plugin model?" >&2
+echo "1) Native Rust (Plugin trait)" >&2
+echo "2) FFI (shared library)" >&2
+read_tty "#? "
+MODEL="$(trim "$REPLY")"
 
 LANG="rust"
 if [ "$MODEL" = "2" ]; then
-    echo "FFI language?"
-    echo "1) Rust"
-    echo "2) C"
-    echo "3) C++"
-    read -rp "#? " LANG_SEL
+    echo "FFI language?" >&2
+    echo "1) Rust" >&2
+    echo "2) C" >&2
+    echo "3) C++" >&2
+    read_tty "#? "
+    LANG_SEL="$(trim "$REPLY")"
     case "$LANG_SEL" in
     1) LANG="rust" ;;
     2) LANG="c" ;;
     3) LANG="cpp" ;;
     *)
-        echo "Invalid choice"
+        echo "Invalid choice" >&2
         exit 1
         ;;
     esac
@@ -135,63 +163,74 @@ fi
 # IO
 ########################################
 
-read -rp "Number of inputs: " N_INPUTS
-read -rp "Number of outputs: " N_OUTPUTS
+N_INPUTS="$(prompt_int "Number of inputs: ")"
+N_OUTPUTS="$(prompt_int "Number of outputs: ")"
 
 INPUTS=""
 OUTPUTS=""
 
-for i in $(seq 1 "$N_INPUTS"); do
+i=1
+while [ "$i" -le "$N_INPUTS" ]; do
     n="$(prompt_identifier "Input #$i name: " "$INPUTS")"
     INPUTS="$INPUTS $n"
+    i=$((i + 1))
 done
 
-for i in $(seq 1 "$N_OUTPUTS"); do
+i=1
+while [ "$i" -le "$N_OUTPUTS" ]; do
     n="$(prompt_identifier "Output #$i name: " "$OUTPUTS")"
     OUTPUTS="$OUTPUTS $n"
+    i=$((i + 1))
 done
 
 ########################################
 # Variables
 ########################################
 
-read -rp "Number of plugin.toml variables: " N_VARS
+N_VARS="$(prompt_int "Number of plugin.toml variables: ")"
 
 VAR_NAMES=""
 VAR_VALUES=""
 
-for i in $(seq 1 "$N_VARS"); do
+i=1
+while [ "$i" -le "$N_VARS" ]; do
     v="$(prompt_identifier "Variable #$i name: " "$VAR_NAMES")"
     while true; do
-        read -rp "Variable #$i default value (TOML literal): " d
-        d="$(trim "$d")"
+        read_tty "Variable #$i default value (TOML literal): "
+        d="$(trim "$REPLY")"
         [ -z "$d" ] && {
-            echo "✖ default value cannot be empty"
+            echo "default value cannot be empty" >&2
             continue
         }
         break
     done
     VAR_NAMES="$VAR_NAMES $v"
     VAR_VALUES="$VAR_VALUES $d"
+    i=$((i + 1))
 done
 
 ########################################
 # FFI flags
 ########################################
 
+EXTENDABLE_INPUTS="false"
+AUTO_EXTEND_INPUTS="false"
+CONNECTION_DEPENDENT="false"
+LOADS_STARTED="false"
+
 if [ "$MODEL" = "2" ]; then
-    echo "Extendable inputs?"
+    echo "Extendable inputs?" >&2
     EXTENDABLE_INPUTS="$(prompt_bool)"
-    echo "Auto extend inputs?"
+    echo "Auto extend inputs?" >&2
     AUTO_EXTEND_INPUTS="$(prompt_bool)"
-    echo "Connection dependent?"
+    echo "Connection dependent?" >&2
     CONNECTION_DEPENDENT="$(prompt_bool)"
-    echo "Loads started?"
+    echo "Loads started?" >&2
     LOADS_STARTED="$(prompt_bool)"
 fi
 
 ########################################
-# Directories
+# Directories (NO plugins/ prefix)
 ########################################
 
 PLUGIN_DIR="$BASE_DIR/$PLUGIN_KIND"
@@ -199,7 +238,7 @@ SRC_DIR="$PLUGIN_DIR/src"
 mkdir -p "$SRC_DIR"
 
 ########################################
-# plugin.toml  ✅ RESTORED
+# plugin.toml
 ########################################
 
 cat >"$PLUGIN_DIR/plugin.toml" <<EOF
@@ -268,15 +307,30 @@ crate-type = ["cdylib"]
 EOF
 
 ########################################
-# Rust dyn (PluginApi)
+# Sources
 ########################################
 
+# 1) Native Rust plugin (always generate src/lib.rs)
+if [ "$MODEL" = "1" ]; then
+    cat >"$SRC_DIR/lib.rs" <<EOF
+use rtsyn_plugin::{Plugin, PluginContext, PluginError};
+
+pub struct PluginState;
+
+impl Plugin for PluginState {
+    fn process(&mut self, _ctx: &mut PluginContext) -> Result<(), PluginError> {
+        Ok(())
+    }
+}
+EOF
+fi
+
+# 2) FFI Rust dyn (PluginApi) - generate src/lib.rs
 if [ "$MODEL" = "2" ] && [ "$LANG" = "rust" ]; then
     LIB="$SRC_DIR/lib.rs"
 
     cat >"$LIB" <<EOF
 use rtsyn_plugin::{PluginApi, PluginString};
-use serde_json::Value;
 use std::ffi::c_void;
 
 const INPUTS: &[&str] = &[
@@ -349,10 +403,56 @@ pub extern "C" fn rtsyn_plugin_api() -> *const PluginApi {
 EOF
 fi
 
+# 3) FFI C - generate src/plugin.c
+if [ "$MODEL" = "2" ] && [ "$LANG" = "c" ]; then
+    cat >"$SRC_DIR/plugin.c" <<'EOF'
+/* C FFI plugin stub.
+   Implement the RTSyn C FFI surface expected by your loader, or provide a shim as needed.
+*/
+#include <stdint.h>
+
+void* create(uint64_t id) { (void)id; return 0; }
+void destroy(void* handle) { (void)handle; }
+
+const char* meta_json(void* handle) { (void)handle; return "{}"; }
+const char* inputs_json(void* handle) { (void)handle; return "[]"; }
+const char* outputs_json(void* handle) { (void)handle; return "[]"; }
+
+void set_config_json(void* handle, const uint8_t* buf, uintptr_t len) { (void)handle; (void)buf; (void)len; }
+void set_input(void* handle, const uint8_t* name, uintptr_t name_len, double v) { (void)handle; (void)name; (void)name_len; (void)v; }
+void process(void* handle, uint64_t tick) { (void)handle; (void)tick; }
+double get_output(void* handle, const uint8_t* name, uintptr_t name_len) { (void)handle; (void)name; (void)name_len; return 0.0; }
+EOF
+fi
+
+# 4) FFI C++ - generate src/plugin.cpp
+if [ "$MODEL" = "2" ] && [ "$LANG" = "cpp" ]; then
+    cat >"$SRC_DIR/plugin.cpp" <<'EOF'
+/* C++ FFI plugin stub.
+   Implement the RTSyn C/C++ FFI surface expected by your loader, or provide a shim as needed.
+*/
+#include <cstdint>
+
+extern "C" {
+void* create(std::uint64_t id) { (void)id; return nullptr; }
+void destroy(void* handle) { (void)handle; }
+
+const char* meta_json(void* handle) { (void)handle; return "{}"; }
+const char* inputs_json(void* handle) { (void)handle; return "[]"; }
+const char* outputs_json(void* handle) { (void)handle; return "[]"; }
+
+void set_config_json(void* handle, const std::uint8_t* buf, std::uintptr_t len) { (void)handle; (void)buf; (void)len; }
+void set_input(void* handle, const std::uint8_t* name, std::uintptr_t name_len, double v) { (void)handle; (void)name; (void)name_len; (void)v; }
+void process(void* handle, std::uint64_t tick) { (void)handle; (void)tick; }
+double get_output(void* handle, const std::uint8_t* name, std::uintptr_t name_len) { (void)handle; (void)name; (void)name_len; return 0.0; }
+}
+EOF
+fi
+
 ########################################
 # Done
 ########################################
 
-echo
-echo "✔ Plugin created at: $PLUGIN_DIR"
-echo "✔ Kind: $PLUGIN_KIND"
+echo >&2
+echo "Plugin created at: $PLUGIN_DIR" >&2
+echo "Kind: $PLUGIN_KIND" >&2
