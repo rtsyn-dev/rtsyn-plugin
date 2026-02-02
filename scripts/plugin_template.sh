@@ -309,8 +309,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-rtsyn_plugin = { workspace = true }
-serde_json = { workspace = true }
+rtsyn_plugin = { git = "https://github.com/rtsyn-dev/rtsyn-plugin" }
+serde_json = "1"
 
 [lib]
 crate-type = ["cdylib"]
