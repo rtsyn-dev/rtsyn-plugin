@@ -23,7 +23,7 @@ source "$HOME/.cargo/env"
 For creating a plugin, execute the following script to interactively create a template.
 
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf https://github.com/rtsyn-dev/rtsyn-plugin/scripts/plugin_template.sh | sh
+curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/rtsyn-dev/rtsyn-plugin/refs/heads/main/scripts/plugin_template.sh | sh
 ```
 
 Then after implementing the functions, import the root folder of the plugin from **RTSyn**.
