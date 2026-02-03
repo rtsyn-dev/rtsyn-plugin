@@ -5,7 +5,7 @@ set -Eeuo pipefail
 # Config
 ########################################
 
-RESERVED_NAMES="time tick id process input inputs output outputs"
+RESERVED_NAMES="time tick id process input inputs output outputs period_seconds"
 
 ########################################
 # Helpers (bash 3.2 safe)
@@ -201,6 +201,7 @@ N_VARS="$(prompt_int "Number of plugin.toml variables: ")"
 
 VAR_NAMES=""
 VAR_VALUES=""
+VAR_TYPES=""
 
 i=1
 while [ "$i" -le "$N_VARS" ]; do
@@ -212,10 +213,24 @@ while [ "$i" -le "$N_VARS" ]; do
             echo "default value cannot be empty" >&2
             continue
         }
+        read_tty "Field #$i C type (double / size_t / int64_t): "
+        ctype="$(trim "$REPLY")"
+
+        case "$ctype" in
+        double) rtype="f64" ;;
+        size_t) rtype="usize" ;;
+        int64_t) rtype="i64" ;;
+        *)
+            echo "Unsupported type"
+            continue
+            ;;
+        esac
+
         break
     done
     VAR_NAMES="$VAR_NAMES $v"
     VAR_VALUES="$VAR_VALUES $d"
+    VAR_TYPES="$VAR_TYPES $ctype"
     i=$((i + 1))
 done
 
@@ -320,53 +335,257 @@ EOF
 # Sources
 ########################################
 
+########################################
+# Sources
+########################################
+
 # 1) Native Rust plugin
 if [ "$MODEL" = "1" ]; then
     cat >"$SRC_DIR/lib.rs" <<EOF
-use rtsyn_plugin::{Plugin, PluginContext, PluginError};
+use rtsyn_plugin::{
+    Plugin, PluginContext, PluginError, PluginId, PluginMeta, Port, PortId,
+};
+use serde_json::Value;
 
-pub struct PluginState;
+pub struct PluginState {
+    id: PluginId,
+    meta: PluginMeta,
+    inputs: Vec<Port>,
+    outputs: Vec<Port>,
+$(
+        i=0
+        for v in $VAR_NAMES; do
+            ctype=$(echo "$VAR_TYPES" | awk "{ print \$$((i + 1)) }")
+            case "$ctype" in
+            double) rtype="f64" ;;
+            size_t) rtype="usize" ;;
+            int64_t) rtype="i64" ;;
+            esac
+            echo "    $v: $rtype,"
+            i=$((i + 1))
+        done
+    )
+}
+
+impl PluginState {
+    pub fn new(id: u64) -> Self {
+        Self {
+            id: PluginId(id),
+            meta: PluginMeta {
+                name: "$PLUGIN_NAME".to_string(),
+                fixed_vars: Vec::new(),
+                default_vars: vec![
+$(
+        i=0
+        for v in $VAR_NAMES; do
+            val=$(echo "$VAR_VALUES" | awk "{ print \$$((i + 1)) }")
+            echo "                    (\"$v\".to_string(), Value::from($val)),"
+            i=$((i + 1))
+        done
+    )
+                ],
+            },
+            inputs: vec![
+$(
+        for x in $INPUTS; do
+            echo "                Port { id: PortId(\"$x\".to_string()) },"
+        done
+    )
+            ],
+            outputs: vec![
+$(
+        for x in $OUTPUTS; do
+            echo "                Port { id: PortId(\"$x\".to_string()) },"
+        done
+    )
+            ],
+$(
+        i=0
+        for v in $VAR_NAMES; do
+            val=$(echo "$VAR_VALUES" | awk "{ print \$$((i + 1)) }")
+            echo "            $v: $val,"
+            i=$((i + 1))
+        done
+    )
+        }
+    }
+}
 
 impl Plugin for PluginState {
+    fn id(&self) -> PluginId {
+        self.id
+    }
+
+    fn meta(&self) -> &PluginMeta {
+        &self.meta
+    }
+
+    fn inputs(&self) -> &[Port] {
+        &self.inputs
+    }
+
+    fn outputs(&self) -> &[Port] {
+        &self.outputs
+    }
+
     fn process(&mut self, _ctx: &mut PluginContext) -> Result<(), PluginError> {
+        // TODO: Implement your plugin logic here
+        // 
+        // REAL-TIME CONSIDERATIONS:
+        // - Keep computational complexity bounded and predictable
+        // - Avoid unbounded loops or recursive algorithms
+        // - For integration loops, limit steps (e.g., max 10-50 per tick)
+        // - Use ctx.period_seconds for time-dependent calculations
+        // - Consider using adaptive time steps instead of increasing iteration count
+        
         Ok(())
     }
 }
 EOF
 fi
 
+########################################
 # 2) FFI Rust dyn (PluginApi)
-if [ "$MODEL" = "2" ] && [ "$LANG" = "rust" ]; then
-    LIB="$SRC_DIR/lib.rs"
+########################################
 
-    cat >"$LIB" <<EOF
-use rtsyn_plugin::{PluginApi, PluginString};
+if [ "$MODEL" = "2" ] && [ "$LANG" = "rust" ]; then
+    cat >"$SRC_DIR/lib.rs" <<EOF
+use rtsyn_plugin::{
+    PluginApi, PluginString,
+    Plugin, PluginContext, PluginError,
+    PluginId, PluginMeta, Port, PortId,
+};
+use serde_json::Value;
 use std::ffi::c_void;
+use std::slice;
+use std::str;
+
+// ============================
+// Static port declarations
+// ============================
 
 const INPUTS: &[&str] = &[
-EOF
-
-    for i in $INPUTS; do
-        echo "    \"$i\"," >>"$LIB"
-    done
-
-    cat >>"$LIB" <<EOF
+$(for x in $INPUTS; do echo "    \"$x\","; done)
 ];
 
 const OUTPUTS: &[&str] = &[
-EOF
-
-    for o in $OUTPUTS; do
-        echo "    \"$o\"," >>"$LIB"
-    done
-
-    cat >>"$LIB" <<EOF
+$(for x in $OUTPUTS; do echo "    \"$x\","; done)
 ];
 
-struct PluginState;
+// ============================
+// Core plugin implementation
+// ============================
 
-extern "C" fn create(_: u64) -> *mut c_void {
-    Box::into_raw(Box::new(PluginState)) as *mut c_void
+pub struct PluginImpl {
+    id: PluginId,
+    meta: PluginMeta,
+    inputs: Vec<Port>,
+    outputs: Vec<Port>,
+$(
+        i=0
+        for v in $VAR_NAMES; do
+            ctype=$(echo "$VAR_TYPES" | awk "{print \$$((i + 1))}")
+            case "$ctype" in
+            double) rtype="f64" ;;
+            size_t) rtype="usize" ;;
+            int64_t) rtype="i64" ;;
+            esac
+            echo "    pub $v: $rtype,"
+            i=$((i + 1))
+        done
+    )
+$(for x in $INPUTS; do echo "    pub $x: f64,"; done)
+$(for x in $OUTPUTS; do echo "    pub $x: f64,"; done)
+}
+
+impl PluginImpl {
+    pub fn new(id: u64) -> Self {
+        Self {
+            id: PluginId(id),
+            meta: PluginMeta {
+                name: "$PLUGIN_NAME".to_string(),
+                fixed_vars: Vec::new(),
+                default_vars: vec![
+$(
+        i=0
+        for v in $VAR_NAMES; do
+            val=$(echo "$VAR_VALUES" | awk "{print \$$((i + 1))}")
+            echo "                    (\"$v\".to_string(), Value::from($val)),"
+            i=$((i + 1))
+        done
+    )
+                ],
+            },
+            inputs: vec![
+$(for x in $INPUTS; do echo "                Port { id: PortId(\"$x\".to_string()) },"; done)
+            ],
+            outputs: vec![
+$(for x in $OUTPUTS; do echo "                Port { id: PortId(\"$x\".to_string()) },"; done)
+            ],
+$(
+        i=0
+        for v in $VAR_NAMES; do
+            val=$(echo "$VAR_VALUES" | awk "{print \$$((i + 1))}")
+            echo "            $v: $val,"
+            i=$((i + 1))
+        done
+    )
+$(for x in $INPUTS; do echo "            $x: 0.0,"; done)
+$(for x in $OUTPUTS; do echo "            $x: 0.0,"; done)
+        }
+    }
+}
+
+impl Plugin for PluginImpl {
+    fn id(&self) -> PluginId {
+        self.id
+    }
+
+    fn meta(&self) -> &PluginMeta {
+        &self.meta
+    }
+
+    fn inputs(&self) -> &[Port] {
+        &self.inputs
+    }
+
+    fn outputs(&self) -> &[Port] {
+        &self.outputs
+    }
+
+    fn process(&mut self, _ctx: &mut PluginContext) -> Result<(), PluginError> {
+        // TODO: Implement your plugin logic here
+        // 
+        // REAL-TIME CONSIDERATIONS:
+        // - Keep computational complexity bounded and predictable
+        // - Avoid unbounded loops or recursive algorithms
+        // - For integration loops, limit steps (e.g., max 10-50 per tick)
+        // - Use ctx.period_seconds for time-dependent calculations
+        // - Consider using adaptive time steps instead of increasing iteration count
+        
+        Ok(())
+    }
+}
+
+// ============================
+// FFI state wrapper
+// ============================
+
+struct PluginState {
+    plugin: PluginImpl,
+    ctx: PluginContext,
+}
+
+// ============================
+// ABI functions
+// ============================
+
+extern "C" fn create(id: u64) -> *mut c_void {
+    let state = PluginState {
+        plugin: PluginImpl::new(id),
+        ctx: PluginContext::default(),
+    };
+    Box::into_raw(Box::new(state)) as *mut c_void
 }
 
 extern "C" fn destroy(handle: *mut c_void) {
@@ -376,10 +595,13 @@ extern "C" fn destroy(handle: *mut c_void) {
 }
 
 extern "C" fn meta_json(_: *mut c_void) -> PluginString {
-    PluginString::from_string(serde_json::json!({
-        "name": "$PLUGIN_NAME",
-        "kind": "$PLUGIN_KIND"
-    }).to_string())
+    PluginString::from_string(
+        serde_json::json!({
+            "name": "$PLUGIN_NAME",
+            "kind": "$PLUGIN_KIND"
+        })
+        .to_string(),
+    )
 }
 
 extern "C" fn inputs_json(_: *mut c_void) -> PluginString {
@@ -390,10 +612,82 @@ extern "C" fn outputs_json(_: *mut c_void) -> PluginString {
     PluginString::from_string(serde_json::to_string(OUTPUTS).unwrap())
 }
 
-extern "C" fn set_config_json(_: *mut c_void, _: *const u8, _: usize) {}
-extern "C" fn set_input(_: *mut c_void, _: *const u8, _: usize, _: f64) {}
-extern "C" fn process(_: *mut c_void, _: u64) {}
-extern "C" fn get_output(_: *mut c_void, _: *const u8, _: usize) -> f64 { 0.0 }
+extern "C" fn set_config_json(handle: *mut c_void, data: *const u8, len: usize) {
+    if handle.is_null() || data.is_null() {
+        return;
+    }
+
+    let state = unsafe { &mut *(handle as *mut PluginState) };
+    let bytes = unsafe { slice::from_raw_parts(data, len) };
+
+    if let Ok(json) = serde_json::from_slice::<Value>(bytes) {
+$(
+        i=0
+        for v in $VAR_NAMES; do
+            ctype=$(echo "$VAR_TYPES" | awk "{print \$$((i + 1))}")
+            case "$ctype" in
+            double)
+                echo "        if let Some(val) = json.get(\"$v\").and_then(|v| v.as_f64()) { state.plugin.$v = val; }"
+                ;;
+            size_t)
+                echo "        if let Some(val) = json.get(\"$v\").and_then(|v| v.as_u64()) { state.plugin.$v = val as usize; }"
+                ;;
+            int64_t)
+                echo "        if let Some(val) = json.get(\"$v\").and_then(|v| v.as_i64()) { state.plugin.$v = val; }"
+                ;;
+            esac
+            i=$((i + 1))
+        done
+    )
+    }
+}
+
+extern "C" fn set_input(handle: *mut c_void, port: *const u8, len: usize, value: f64) {
+    if handle.is_null() || port.is_null() {
+        return;
+    }
+
+    let state = unsafe { &mut *(handle as *mut PluginState) };
+    let name = unsafe { slice::from_raw_parts(port, len) };
+
+    match str::from_utf8(name) {
+$(for x in $INPUTS; do
+        echo "        Ok(\"$x\") => state.plugin.$x = value,"
+    done)
+        _ => {}
+    }
+}
+
+extern "C" fn process(handle: *mut c_void, tick: u64, period_seconds: f64) {
+    if handle.is_null() {
+        return;
+    }
+
+    let state = unsafe { &mut *(handle as *mut PluginState) };
+    state.ctx.tick = tick;
+    state.ctx.period_seconds = period_seconds;
+    let _ = state.plugin.process(&mut state.ctx);
+}
+
+extern "C" fn get_output(handle: *mut c_void, port: *const u8, len: usize) -> f64 {
+    if handle.is_null() || port.is_null() {
+        return 0.0;
+    }
+
+    let state = unsafe { &*(handle as *mut PluginState) };
+    let name = unsafe { slice::from_raw_parts(port, len) };
+
+    match str::from_utf8(name) {
+$(for x in $OUTPUTS; do
+        echo "        Ok(\"$x\") => state.plugin.$x,"
+    done)
+        _ => 0.0,
+    }
+}
+
+// ============================
+// Plugin API export
+// ============================
 
 #[no_mangle]
 pub extern "C" fn rtsyn_plugin_api() -> *const PluginApi {
@@ -413,49 +707,438 @@ pub extern "C" fn rtsyn_plugin_api() -> *const PluginApi {
 EOF
 fi
 
-# 3) FFI C - generate src/plugin.c
+########################################
+# 3) FFI C core (numerical model)
+########################################
+
 if [ "$MODEL" = "2" ] && [ "$LANG" = "c" ]; then
-    cat >"$SRC_DIR/plugin.c" <<'EOF'
-/* C FFI plugin stub.
-   Implement the RTSyn C FFI surface expected by your loader, or provide a shim as needed.
-*/
-#include <stdint.h>
+    C_BASENAME="$(to_snake_case "$PLUGIN_SLUG")"
 
-void* create(uint64_t id) { (void)id; return 0; }
-void destroy(void* handle) { (void)handle; }
+    ########################################
+    # Header
+    ########################################
 
-const char* meta_json(void* handle) { (void)handle; return "{}"; }
-const char* inputs_json(void* handle) { (void)handle; return "[]"; }
-const char* outputs_json(void* handle) { (void)handle; return "[]"; }
+    cat >"$SRC_DIR/$C_BASENAME.h" <<EOF
+#pragma once
+#include <stddef.h>
 
-void set_config_json(void* handle, const uint8_t* buf, uintptr_t len) { (void)handle; (void)buf; (void)len; }
-void set_input(void* handle, const uint8_t* name, uintptr_t name_len, double v) { (void)handle; (void)name; (void)name_len; (void)v; }
-void process(void* handle, uint64_t tick) { (void)handle; (void)tick; }
-double get_output(void* handle, const uint8_t* name, uintptr_t name_len) { (void)handle; (void)name; (void)name_len; return 0.0; }
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct ${C_BASENAME}_state {
+$(
+        i=0
+        for v in $VAR_NAMES; do
+            ctype=$(echo "$VAR_TYPES" | awk "{print \$$((i + 1))}")
+            echo "    $ctype $v;"
+            i=$((i + 1))
+        done
+    )
+$(for x in $INPUTS; do echo "    double $x;"; done)
+$(for x in $OUTPUTS; do echo "    double $x;"; done)
+} ${C_BASENAME}_state_t;
+
+void ${C_BASENAME}_init(${C_BASENAME}_state_t *state);
+void ${C_BASENAME}_set_config(${C_BASENAME}_state_t *state, const char *key, size_t len, double value);
+void ${C_BASENAME}_set_input(${C_BASENAME}_state_t *state, const char *name, size_t len, double value);
+void ${C_BASENAME}_process(${C_BASENAME}_state_t *state, double period_seconds);
+
+#ifdef __cplusplus
+}
+#endif
+EOF
+
+    ########################################
+    # Source
+    ########################################
+
+    cat >"$SRC_DIR/$C_BASENAME.c" <<EOF
+#include "$C_BASENAME.h"
+#include <string.h>
+
+void ${C_BASENAME}_init(${C_BASENAME}_state_t *state) {
+$(
+        i=0
+        for v in $VAR_NAMES; do
+            val=$(echo "$VAR_VALUES" | awk "{print \$$((i + 1))}")
+            ctype=$(echo "$VAR_TYPES" | awk "{print \$$((i + 1))}")
+            case "$ctype" in
+            double) echo "    state->$v = $val;" ;;
+            size_t) echo "    state->$v = $val;" ;;
+            int64_t) echo "    state->$v = $val;" ;;
+            esac
+            i=$((i + 1))
+        done
+    )
+$(for x in $INPUTS; do echo "    state->$x = 0.0;"; done)
+$(for x in $OUTPUTS; do echo "    state->$x = 0.0;"; done)
+}
+
+void ${C_BASENAME}_set_config(
+    ${C_BASENAME}_state_t *state,
+    const char *key,
+    size_t len,
+    double value
+) {
+$(for v in $VAR_NAMES; do
+        echo "    if (len == ${#v} && strncmp(key, \"$v\", len) == 0) { state->$v = value; return; }"
+    done)
+}
+
+void ${C_BASENAME}_set_input(
+    ${C_BASENAME}_state_t *state,
+    const char *name,
+    size_t len,
+    double value
+) {
+$(for x in $INPUTS; do
+        echo "    if (len == ${#x} && strncmp(name, \"$x\", len) == 0) { state->$x = value; return; }"
+    done)
+}
+
+void ${C_BASENAME}_process(${C_BASENAME}_state_t *state, double period_seconds) {
+    /* TODO: Implement your plugin logic here
+     * 
+     * REAL-TIME CONSIDERATIONS:
+     * - Keep computational complexity bounded and predictable
+     * - Avoid unbounded loops or recursive algorithms
+     * - For integration loops, limit steps (e.g., max 10-50 per tick)
+     * - Consider using adaptive time steps instead of increasing iteration count
+     * - Use period_seconds for time-dependent calculations
+     */
+    (void)state;
+    (void)period_seconds;
+}
 EOF
 fi
 
-# 4) FFI C++ - generate src/plugin.cpp
+########################################
+# 4) FFI C++ core (numerical model)
+########################################
+
 if [ "$MODEL" = "2" ] && [ "$LANG" = "cpp" ]; then
-    cat >"$SRC_DIR/plugin.cpp" <<'EOF'
-/* C++ FFI plugin stub.
-   Implement the RTSyn C/C++ FFI surface expected by your loader, or provide a shim as needed.
-*/
-#include <cstdint>
+    CPP_BASENAME="$(to_snake_case "$PLUGIN_SLUG")"
+
+    ########################################
+    # Header
+    ########################################
+
+    cat >"$SRC_DIR/$CPP_BASENAME.h" <<EOF
+#pragma once
+#include <cstddef>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct ${CPP_BASENAME}_state_cpp {
+$(
+        i=0
+        for v in $VAR_NAMES; do
+            ctype=$(echo "$VAR_TYPES" | awk "{print \$$((i + 1))}")
+            echo "    $ctype $v;"
+            i=$((i + 1))
+        done
+    )
+$(for x in $INPUTS; do echo "    double $x;"; done)
+$(for x in $OUTPUTS; do echo "    double $x;"; done)
+} ${CPP_BASENAME}_state_cpp_t;
+
+void ${CPP_BASENAME}_init(${CPP_BASENAME}_state_cpp_t *state);
+void ${CPP_BASENAME}_set_config(${CPP_BASENAME}_state_cpp_t *state, const char *key, size_t len, double value);
+void ${CPP_BASENAME}_set_input(${CPP_BASENAME}_state_cpp_t *state, const char *name, size_t len, double value);
+void ${CPP_BASENAME}_process(${CPP_BASENAME}_state_cpp_t *state, double period_seconds);
+
+#ifdef __cplusplus
+}
+#endif
+EOF
+
+    ########################################
+    # Source
+    ########################################
+
+    cat >"$SRC_DIR/$CPP_BASENAME.cpp" <<EOF
+#include "$CPP_BASENAME.h"
+#include <cstring>
+#include <cmath>
+
+extern "C" void ${CPP_BASENAME}_init(${CPP_BASENAME}_state_cpp_t *state) {
+$(
+        i=0
+        for v in $VAR_NAMES; do
+            val=$(echo "$VAR_VALUES" | awk "{print \$$((i + 1))}")
+            ctype=$(echo "$VAR_TYPES" | awk "{print \$$((i + 1))}")
+            case "$ctype" in
+            double) echo "    state->$v = $val;" ;;
+            size_t) echo "    state->$v = $val;" ;;
+            int64_t) echo "    state->$v = $val;" ;;
+            esac
+            i=$((i + 1))
+        done
+    )
+$(for x in $INPUTS; do echo "    state->$x = 0.0;"; done)
+$(for x in $OUTPUTS; do echo "    state->$x = 0.0;"; done)
+}
+
+extern "C" void ${CPP_BASENAME}_set_config(
+    ${CPP_BASENAME}_state_cpp_t *state,
+    const char *key,
+    size_t len,
+    double value
+) {
+$(for v in $VAR_NAMES; do
+        echo "    if (len == ${#v} && std::strncmp(key, \"$v\", len) == 0) { state->$v = value; return; }"
+    done)
+}
+
+extern "C" void ${CPP_BASENAME}_set_input(
+    ${CPP_BASENAME}_state_cpp_t *state,
+    const char *name,
+    size_t len,
+    double value
+) {
+$(for x in $INPUTS; do
+        echo "    if (len == ${#x} && std::strncmp(name, \"$x\", len) == 0) { state->$x = value; return; }"
+    done)
+}
+
+extern "C" void ${CPP_BASENAME}_process(${CPP_BASENAME}_state_cpp_t *state, double period_seconds) {
+    /* TODO: Implement your plugin logic here
+     * 
+     * REAL-TIME CONSIDERATIONS:
+     * - Keep computational complexity bounded and predictable
+     * - Avoid unbounded loops or recursive algorithms
+     * - For integration loops, limit steps (e.g., max 10-50 per tick)
+     * - Consider using adaptive time steps instead of increasing iteration count
+     * - Use period_seconds for time-dependent calculations
+     */
+    (void)state;
+    (void)period_seconds;
+}
+EOF
+fi
+
+########################################
+# lib.rs (FFI wrapper for C / C++)
+########################################
+
+if [ "$MODEL" = "2" ] && { [ "$LANG" = "c" ] || [ "$LANG" = "cpp" ]; }; then
+    CORE="$(to_snake_case "$PLUGIN_SLUG")"
+
+    cat >"$SRC_DIR/lib.rs" <<EOF
+use rtsyn_plugin::{PluginApi, PluginString};
+use serde_json::Value;
+use std::ffi::c_void;
+use std::slice;
+use std::str;
+
+#[repr(C)]
+struct CoreState {
+$(
+        i=0
+        for v in $VAR_NAMES; do
+            ctype=$(echo "$VAR_TYPES" | awk "{print \$$((i + 1))}")
+            case "$ctype" in
+            double) rtype="f64" ;;
+            size_t) rtype="usize" ;;
+            int64_t) rtype="i64" ;;
+            esac
+            echo "    $v: $rtype,"
+            i=$((i + 1))
+        done
+    )
+$(for x in $INPUTS; do echo "    $x: f64,"; done)
+$(for x in $OUTPUTS; do echo "    $x: f64,"; done)
+}
 
 extern "C" {
-void* create(std::uint64_t id) { (void)id; return nullptr; }
-void destroy(void* handle) { (void)handle; }
-
-const char* meta_json(void* handle) { (void)handle; return "{}"; }
-const char* inputs_json(void* handle) { (void)handle; return "[]"; }
-const char* outputs_json(void* handle) { (void)handle; return "[]"; }
-
-void set_config_json(void* handle, const std::uint8_t* buf, std::uintptr_t len) { (void)handle; (void)buf; (void)len; }
-void set_input(void* handle, const std::uint8_t* name, std::uintptr_t name_len, double v) { (void)handle; (void)name; (void)name_len; (void)v; }
-void process(void* handle, std::uint64_t tick) { (void)handle; (void)tick; }
-double get_output(void* handle, const std::uint8_t* name, std::uintptr_t name_len) { (void)handle; (void)name; (void)name_len; return 0.0; }
+    fn ${CORE}_init(state: *mut CoreState);
+    fn ${CORE}_set_config(state: *mut CoreState, key: *const u8, len: usize, value: f64);
+    fn ${CORE}_set_input(state: *mut CoreState, name: *const u8, len: usize, value: f64);
+    fn ${CORE}_process(state: *mut CoreState, period_seconds: f64);
 }
+
+const INPUTS: &[&str] = &[
+$(for x in $INPUTS; do echo "    \"$x\","; done)
+];
+
+const OUTPUTS: &[&str] = &[
+$(for x in $OUTPUTS; do echo "    \"$x\","; done)
+];
+
+extern "C" fn create(_id: u64) -> *mut c_void {
+    let mut state = Box::new(CoreState {
+$(
+        i=0
+        for v in $VAR_NAMES; do
+            ctype=$(echo "$VAR_TYPES" | awk "{print \$$((i + 1))}")
+            case "$ctype" in
+            double) echo "        $v: 0.0," ;;
+            size_t) echo "        $v: 0," ;;
+            int64_t) echo "        $v: 0," ;;
+            esac
+            i=$((i + 1))
+        done
+    )
+$(for x in $INPUTS; do echo "        $x: 0.0,"; done)
+$(for x in $OUTPUTS; do echo "        $x: 0.0,"; done)
+    });
+    unsafe {
+        ${CORE}_init(&mut *state);
+    }
+    Box::into_raw(state) as *mut c_void
+}
+
+extern "C" fn destroy(handle: *mut c_void) {
+    if handle.is_null() {
+        return;
+    }
+    unsafe {
+        drop(Box::from_raw(handle as *mut CoreState));
+    }
+}
+
+extern "C" fn meta_json(_: *mut c_void) -> PluginString {
+    PluginString::from_string(
+        serde_json::json!({
+            "name": "$PLUGIN_NAME",
+            "kind": "$PLUGIN_KIND"
+        })
+        .to_string(),
+    )
+}
+
+extern "C" fn inputs_json(_: *mut c_void) -> PluginString {
+    PluginString::from_string(serde_json::to_string(INPUTS).unwrap())
+}
+
+extern "C" fn outputs_json(_: *mut c_void) -> PluginString {
+    PluginString::from_string(serde_json::to_string(OUTPUTS).unwrap())
+}
+
+extern "C" fn set_config_json(handle: *mut c_void, data: *const u8, len: usize) {
+    if handle.is_null() || data.is_null() || len == 0 {
+        return;
+    }
+
+    let state = handle as *mut CoreState;
+    let bytes = unsafe { slice::from_raw_parts(data, len) };
+
+    if let Ok(json) = serde_json::from_slice::<Value>(bytes) {
+        if let Some(map) = json.as_object() {
+            for (key, value) in map {
+                if let Some(v) = value.as_f64() {
+                    unsafe {
+                        ${CORE}_set_config(
+                            state,
+                            key.as_bytes().as_ptr(),
+                            key.len(),
+                            v,
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+extern "C" fn set_input(handle: *mut c_void, name: *const u8, len: usize, value: f64) {
+    if handle.is_null() || name.is_null() || len == 0 {
+        return;
+    }
+
+    unsafe {
+        ${CORE}_set_input(
+            handle as *mut CoreState,
+            name,
+            len,
+            value,
+        );
+    }
+}
+
+extern "C" fn process(handle: *mut c_void, _tick: u64, period_seconds: f64) {
+    if handle.is_null() {
+        return;
+    }
+    unsafe {
+        ${CORE}_process(handle as *mut CoreState, period_seconds);
+    }
+}
+
+extern "C" fn get_output(handle: *mut c_void, name: *const u8, len: usize) -> f64 {
+    if handle.is_null() || name.is_null() || len == 0 {
+        return 0.0;
+    }
+
+    let state = unsafe { &*(handle as *mut CoreState) };
+    let bytes = unsafe { slice::from_raw_parts(name, len) };
+
+    match str::from_utf8(bytes) {
+$(for x in $OUTPUTS; do
+        echo "        Ok(\"$x\") => state.$x,"
+    done)
+        _ => 0.0,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn rtsyn_plugin_api() -> *const PluginApi {
+    static API: PluginApi = PluginApi {
+        create,
+        destroy,
+        meta_json,
+        inputs_json,
+        outputs_json,
+        set_config_json,
+        set_input,
+        process,
+        get_output,
+    };
+    &API
+}
+EOF
+fi
+
+########################################
+# build.rs (FFI C / C++)
+########################################
+
+if [ "$MODEL" = "2" ] && { [ "$LANG" = "c" ] || [ "$LANG" = "cpp" ]; }; then
+    CORE="$(to_snake_case "$PLUGIN_SLUG")"
+
+    cat >"$PLUGIN_DIR/build.rs" <<EOF
+fn main() {
+    let mut build = cc::Build::new();
+EOF
+
+    if [ "$LANG" = "cpp" ]; then
+        cat >>"$PLUGIN_DIR/build.rs" <<EOF
+    build
+        .cpp(true)
+        .flag_if_supported("-std=c++17")
+        .file("src/$CORE.cpp");
+EOF
+    else
+        cat >>"$PLUGIN_DIR/build.rs" <<EOF
+    build
+        .file("src/$CORE.c");
+EOF
+    fi
+
+    cat >>"$PLUGIN_DIR/build.rs" <<EOF
+    build.compile("$PLUGIN_SLUG");
+}
+EOF
+fi
+
+if [ "$MODEL" = "2" ] && { [ "$LANG" = "c" ] || [ "$LANG" = "cpp" ]; }; then
+    cat >>"$PLUGIN_DIR/Cargo.toml" <<EOF
+
+[build-dependencies]
+cc = "1"
 EOF
 fi
 

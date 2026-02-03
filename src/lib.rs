@@ -22,6 +22,7 @@ pub struct PluginMeta {
 #[derive(Debug, Default)]
 pub struct PluginContext {
     pub tick: u64,
+    pub period_seconds: f64,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -94,7 +95,7 @@ pub struct PluginApi {
     pub set_config_json: extern "C" fn(handle: *mut std::ffi::c_void, data: *const u8, len: usize),
     pub set_input:
         extern "C" fn(handle: *mut std::ffi::c_void, name: *const u8, len: usize, value: f64),
-    pub process: extern "C" fn(handle: *mut std::ffi::c_void, tick: u64),
+    pub process: extern "C" fn(handle: *mut std::ffi::c_void, tick: u64, period_seconds: f64),
     pub get_output:
         extern "C" fn(handle: *mut std::ffi::c_void, name: *const u8, len: usize) -> f64,
 }
