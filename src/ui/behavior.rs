@@ -106,3 +106,23 @@ mod tests {
         assert_eq!(behavior, deserialized);
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UiSchema {
+    #[serde(default)]
+    pub display_outputs: Vec<String>,
+    #[serde(default)]
+    pub display_inputs: Vec<String>,
+    #[serde(default)]
+    pub display_variables: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DisplaySchema {
+    #[serde(default)]
+    pub outputs: Vec<String>,
+    #[serde(default)]
+    pub inputs: Vec<String>,
+    #[serde(default)]
+    pub variables: Vec<String>,
+}
