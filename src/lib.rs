@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod prelude;
+pub mod ui;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PluginId(pub u64);
 
@@ -37,6 +40,30 @@ pub trait Plugin: Send {
     fn inputs(&self) -> &[Port];
     fn outputs(&self) -> &[Port];
     fn process(&mut self, ctx: &mut PluginContext) -> Result<(), PluginError>;
+
+    // NEW: UI schema for configuration
+    fn ui_schema(&self) -> Option<ui::UISchema> {
+        None
+    }
+
+    // NEW: Plugin behavior flags
+    fn behavior(&self) -> ui::PluginBehavior {
+        ui::PluginBehavior::default()
+    }
+
+    // NEW: Connection behavior
+    fn connection_behavior(&self) -> ui::ConnectionBehavior {
+        ui::ConnectionBehavior::default()
+    }
+
+    // NEW: Dynamic input management
+    fn on_input_added(&mut self, _port: &str) -> Result<(), PluginError> {
+        Ok(())
+    }
+
+    fn on_input_removed(&mut self, _port: &str) -> Result<(), PluginError> {
+        Ok(())
+    }
 }
 
 pub trait DeviceDriver: Plugin {
@@ -92,6 +119,8 @@ pub struct PluginApi {
     pub meta_json: extern "C" fn(handle: *mut std::ffi::c_void) -> PluginString,
     pub inputs_json: extern "C" fn(handle: *mut std::ffi::c_void) -> PluginString,
     pub outputs_json: extern "C" fn(handle: *mut std::ffi::c_void) -> PluginString,
+    pub behavior_json: Option<extern "C" fn(handle: *mut std::ffi::c_void) -> PluginString>,
+    pub ui_schema_json: Option<extern "C" fn(handle: *mut std::ffi::c_void) -> PluginString>,
     pub set_config_json: extern "C" fn(handle: *mut std::ffi::c_void, data: *const u8, len: usize),
     pub set_input:
         extern "C" fn(handle: *mut std::ffi::c_void, name: *const u8, len: usize, value: f64),
