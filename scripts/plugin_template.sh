@@ -197,7 +197,7 @@ done
 # Variables
 ########################################
 
-N_VARS="$(prompt_int "Number of plugin.toml variables: ")"
+N_VARS="$(prompt_int "Number of default variables: ")"
 
 VAR_NAMES=""
 VAR_VALUES=""
@@ -207,7 +207,7 @@ i=1
 while [ "$i" -le "$N_VARS" ]; do
     v="$(prompt_identifier "Variable #$i name: " "$VAR_NAMES")"
     while true; do
-        read_tty "Variable #$i default value (TOML literal): "
+        read_tty "Variable #$i default value: "
         d="$(trim "$REPLY")"
         [ -z "$d" ] && {
             echo "default value cannot be empty" >&2
@@ -235,26 +235,6 @@ while [ "$i" -le "$N_VARS" ]; do
 done
 
 ########################################
-# FFI flags
-########################################
-
-EXTENDABLE_INPUTS="false"
-AUTO_EXTEND_INPUTS="false"
-CONNECTION_DEPENDENT="false"
-LOADS_STARTED="false"
-
-if [ "$MODEL" = "2" ]; then
-    echo "Extendable inputs?" >&2
-    EXTENDABLE_INPUTS="$(prompt_bool)"
-    echo "Auto extend inputs?" >&2
-    AUTO_EXTEND_INPUTS="$(prompt_bool)"
-    echo "Connection dependent?" >&2
-    CONNECTION_DEPENDENT="$(prompt_bool)"
-    echo "Loads started?" >&2
-    LOADS_STARTED="$(prompt_bool)"
-fi
-
-########################################
 # Directories (NO implicit plugins/)
 ########################################
 
@@ -271,47 +251,13 @@ name = "$PLUGIN_NAME"
 kind = "$PLUGIN_KIND"
 version = "0.1.0"
 description = "$DESCRIPTION"
-supports_start_stop = true
-supports_restart = true
 EOF
 
 if [ "$MODEL" = "2" ]; then
     cat >>"$PLUGIN_DIR/plugin.toml" <<EOF
 library = "lib$PLUGIN_SLUG.so"
-extendable_inputs = $EXTENDABLE_INPUTS
-auto_extend_inputs = $AUTO_EXTEND_INPUTS
-connection_dependent = $CONNECTION_DEPENDENT
-loads_started = $LOADS_STARTED
 EOF
 fi
-
-for x in $INPUTS; do
-    cat >>"$PLUGIN_DIR/plugin.toml" <<EOF
-
-[[inputs]]
-name = "$x"
-EOF
-done
-
-for x in $OUTPUTS; do
-    cat >>"$PLUGIN_DIR/plugin.toml" <<EOF
-
-[[outputs]]
-name = "$x"
-EOF
-done
-
-set -- $VAR_VALUES
-for v in $VAR_NAMES; do
-    d="$1"
-    shift
-    cat >>"$PLUGIN_DIR/plugin.toml" <<EOF
-
-[[variables]]
-name = "$v"
-default = $d
-EOF
-done
 
 ########################################
 # Cargo.toml
