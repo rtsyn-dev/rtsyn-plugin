@@ -41,22 +41,37 @@ pub trait Plugin: Send {
     fn outputs(&self) -> &[Port];
     fn process(&mut self, ctx: &mut PluginContext) -> Result<(), PluginError>;
 
-    // NEW: UI schema for configuration
+    // UI schema for configuration
     fn ui_schema(&self) -> Option<ui::UISchema> {
         None
     }
 
-    // NEW: Plugin behavior flags
+    // Display schema for UI
+    fn display_schema(&self) -> Option<ui::DisplaySchema> {
+        None
+    }
+
+    // Plugin behavior flags
     fn behavior(&self) -> ui::PluginBehavior {
         ui::PluginBehavior::default()
     }
 
-    // NEW: Connection behavior
+    // Connection behavior
     fn connection_behavior(&self) -> ui::ConnectionBehavior {
         ui::ConnectionBehavior::default()
     }
 
-    // NEW: Dynamic input management
+    // Get internal variable value for display
+    fn get_variable(&self, _name: &str) -> Option<Value> {
+        None
+    }
+
+    // Set variable value from UI
+    fn set_variable(&mut self, _name: &str, _value: Value) -> Result<(), PluginError> {
+        Ok(())
+    }
+
+    // Dynamic input management
     fn on_input_added(&mut self, _port: &str) -> Result<(), PluginError> {
         Ok(())
     }

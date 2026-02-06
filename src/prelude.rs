@@ -5,6 +5,6 @@ pub use crate::{
 };
 
 pub use crate::ui::{
-    behavior::{ConnectionBehavior, ExtendableInputs, PluginBehavior},
+    behavior::{ConnectionBehavior, DisplaySchema, ExtendableInputs, PluginBehavior},
     schema::{ConfigField, FieldType, FileMode, UISchema},
 };
