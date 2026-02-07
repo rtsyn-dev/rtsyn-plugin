@@ -108,16 +108,6 @@ mod tests {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UiSchema {
-    #[serde(default)]
-    pub display_outputs: Vec<String>,
-    #[serde(default)]
-    pub display_inputs: Vec<String>,
-    #[serde(default)]
-    pub display_variables: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DisplaySchema {
     #[serde(default)]
     pub outputs: Vec<String>,

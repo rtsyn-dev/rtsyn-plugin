@@ -135,6 +135,7 @@ pub struct PluginApi {
     pub inputs_json: extern "C" fn(handle: *mut std::ffi::c_void) -> PluginString,
     pub outputs_json: extern "C" fn(handle: *mut std::ffi::c_void) -> PluginString,
     pub behavior_json: Option<extern "C" fn(handle: *mut std::ffi::c_void) -> PluginString>,
+    pub display_schema_json: Option<extern "C" fn(handle: *mut std::ffi::c_void) -> PluginString>,
     pub ui_schema_json: Option<extern "C" fn(handle: *mut std::ffi::c_void) -> PluginString>,
     pub set_config_json: extern "C" fn(handle: *mut std::ffi::c_void, data: *const u8, len: usize),
     pub set_input:
