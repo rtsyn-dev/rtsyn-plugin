@@ -254,6 +254,7 @@ pub extern "C" fn rtsyn_behavior_to_json(
     extendable_inputs_pattern: *const c_char,
     loads_started: c_int,
     connection_dependent: c_int,
+    external_window: c_int,
 ) -> *mut c_char {
     let extendable_inputs = match extendable_inputs_type {
         0 => ExtendableInputs::None,
@@ -281,6 +282,7 @@ pub extern "C" fn rtsyn_behavior_to_json(
         supports_restart: supports_restart != 0,
         extendable_inputs,
         loads_started: loads_started != 0,
+        external_window: external_window != 0,
     };
 
     let combined = serde_json::json!({
@@ -366,7 +368,7 @@ mod tests {
     #[test]
     fn test_behavior_to_json() {
         let pattern = CString::new("in_{}").unwrap();
-        let json = rtsyn_behavior_to_json(1, 0, 2, pattern.as_ptr(), 0, 1);
+        let json = rtsyn_behavior_to_json(1, 0, 2, pattern.as_ptr(), 0, 1, 0);
         assert!(!json.is_null());
         
         unsafe {

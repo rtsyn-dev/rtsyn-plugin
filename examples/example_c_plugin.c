@@ -108,7 +108,8 @@ char* behavior_json(void* instance) {
         RTSYN_EXTENDABLE_NONE,  // extendable_inputs_type
         NULL,  // extendable_inputs_pattern
         1,  // loads_started
-        0   // connection_dependent
+        0,  // connection_dependent
+        0   // external_window
     );
 }
 

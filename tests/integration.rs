@@ -86,6 +86,7 @@ impl Plugin for TestPlugin {
                 pattern: "in_{}".to_string(),
             },
             loads_started: false,
+            external_window: false,
         }
     }
 

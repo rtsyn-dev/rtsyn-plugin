@@ -121,7 +121,8 @@ char* rtsyn_behavior_to_json(
     int extendable_inputs_type,
     const char* extendable_inputs_pattern,
     int loads_started,
-    int connection_dependent
+    int connection_dependent,
+    int external_window
 );
 
 // === String Management ===

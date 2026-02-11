@@ -6,6 +6,8 @@ pub struct PluginBehavior {
     pub supports_restart: bool,
     pub extendable_inputs: ExtendableInputs,
     pub loads_started: bool,
+    #[serde(default)]
+    pub external_window: bool,
 }
 
 impl Default for PluginBehavior {
@@ -15,6 +17,7 @@ impl Default for PluginBehavior {
             supports_restart: true,
             extendable_inputs: ExtendableInputs::None,
             loads_started: true,
+            external_window: false,
         }
     }
 }
@@ -49,6 +52,7 @@ mod tests {
         assert!(behavior.supports_restart);
         assert_eq!(behavior.extendable_inputs, ExtendableInputs::None);
         assert!(behavior.loads_started);
+        assert!(!behavior.external_window);
     }
 
     #[test]
@@ -99,6 +103,7 @@ mod tests {
                 pattern: "input_{}".to_string(),
             },
             loads_started: false,
+            external_window: true,
         };
 
         let json = serde_json::to_string(&behavior).unwrap();
