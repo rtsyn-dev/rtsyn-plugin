@@ -1,4 +1,4 @@
-use crate::ui::{DisplaySchema, PluginBehavior};
+use crate::ui::{DisplaySchema, PluginBehavior, UISchema};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -95,6 +95,10 @@ pub trait PluginRuntime {
 
     fn set_input_value(&mut self, _key: &str, _value: f64) {}
 
+    fn ui_schema(&self) -> Option<UISchema> {
+        None
+    }
+
     fn process_tick(&mut self, tick: u64, period_seconds: f64);
 
     fn get_output_value(&self, key: &str) -> f64;
@@ -174,6 +178,19 @@ macro_rules! export_plugin {
                 serde_json::to_string(&schema).unwrap_or_default()
             });
             $crate::PluginString::from_string(json.clone())
+        }
+
+        extern "C" fn ui_schema_json(handle: *mut std::ffi::c_void) -> $crate::PluginString {
+            if handle.is_null() {
+                return $crate::PluginString::from_string(String::new());
+            }
+            let instance = unsafe { &mut *(handle as *mut $plugin_ty) };
+            let schema = <$plugin_ty as $crate::api::PluginRuntime>::ui_schema(instance);
+            let json = match schema {
+                Some(schema) => serde_json::to_string(&schema).unwrap_or_default(),
+                None => String::new(),
+            };
+            $crate::PluginString::from_string(json)
         }
 
         extern "C" fn set_config_json(handle: *mut std::ffi::c_void, data: *const u8, len: usize) {
@@ -259,7 +276,7 @@ macro_rules! export_plugin {
                 outputs_json,
                 behavior_json: Some(behavior_json),
                 display_schema_json: Some(display_schema_json),
-                ui_schema_json: None,
+                ui_schema_json: Some(ui_schema_json),
                 set_config_json,
                 set_input,
                 process,
