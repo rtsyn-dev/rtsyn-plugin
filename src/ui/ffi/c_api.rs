@@ -280,9 +280,13 @@ pub extern "C" fn rtsyn_behavior_to_json(
     let behavior = PluginBehavior {
         supports_start_stop: supports_start_stop != 0,
         supports_restart: supports_restart != 0,
+        supports_apply: false,
         extendable_inputs,
         loads_started: loads_started != 0,
         external_window: external_window != 0,
+        starts_expanded: true,
+        start_requires_connected_inputs: Vec::new(),
+        start_requires_connected_outputs: Vec::new(),
     };
 
     let combined = serde_json::json!({

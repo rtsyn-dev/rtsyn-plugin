@@ -1,71 +1,89 @@
-use rtsyn_plugin::{Plugin, PluginContext, PluginError, PluginId, PluginMeta, Port, PortId};
-use serde_json::json;
+use rtsyn_plugin::prelude::*;
 
-struct DummyPlugin {
-    id: PluginId,
-    meta: PluginMeta,
-    inputs: Vec<Port>,
-    outputs: Vec<Port>,
-    calls: usize,
-}
+#[derive(Default)]
+struct Dummy;
 
-impl DummyPlugin {
-    fn new(id: u64) -> Self {
-        Self {
-            id: PluginId(id),
-            meta: PluginMeta {
-                name: "dummy".to_string(),
-                fixed_vars: vec![("fixed".to_string(), json!(1))],
-                default_vars: vec![("default".to_string(), json!(2))],
-            },
-            inputs: vec![Port {
-                id: PortId("in".to_string()),
-            }],
-            outputs: vec![Port {
-                id: PortId("out".to_string()),
-            }],
-            calls: 0,
-        }
+#[derive(Default)]
+struct StandardDummy;
+
+impl PluginDescriptor for Dummy {
+    fn name() -> &'static str {
+        "Dummy"
+    }
+
+    fn kind() -> &'static str {
+        "dummy"
+    }
+
+    fn plugin_type() -> PluginType {
+        PluginType::Computational
+    }
+
+    fn inputs() -> &'static [&'static str] {
+        &["i_in"]
+    }
+
+    fn outputs() -> &'static [&'static str] {
+        &["v_out"]
+    }
+
+    fn internal_variables() -> &'static [&'static str] {
+        &["x"]
     }
 }
 
-impl Plugin for DummyPlugin {
-    fn id(&self) -> PluginId {
-        self.id
+impl PluginDescriptor for StandardDummy {
+    fn name() -> &'static str {
+        "Standard Dummy"
     }
 
-    fn meta(&self) -> &PluginMeta {
-        &self.meta
+    fn kind() -> &'static str {
+        "standard_dummy"
     }
 
-    fn inputs(&self) -> &[Port] {
-        &self.inputs
+    fn inputs() -> &'static [&'static str] {
+        &[]
     }
 
-    fn outputs(&self) -> &[Port] {
-        &self.outputs
+    fn outputs() -> &'static [&'static str] {
+        &[]
     }
-
-    fn process(&mut self, _ctx: &mut PluginContext) -> Result<(), PluginError> {
-        self.calls += 1;
-        Ok(())
-    }
-}
-
-#[test]
-fn plugin_meta_and_ports() {
-    let plugin = DummyPlugin::new(1);
-    assert_eq!(plugin.id().0, 1);
-    assert_eq!(plugin.meta().name, "dummy");
-    assert_eq!(plugin.inputs()[0].id.0, "in");
-    assert_eq!(plugin.outputs()[0].id.0, "out");
 }
 
 #[test]
-fn plugin_process_is_called() {
-    let mut plugin = DummyPlugin::new(2);
-    let mut ctx = PluginContext::default();
-    plugin.process(&mut ctx).unwrap();
-    plugin.process(&mut ctx).unwrap();
-    assert_eq!(plugin.calls, 2);
+fn descriptor_metadata() {
+    assert_eq!(Dummy::name(), "Dummy");
+    assert_eq!(Dummy::kind(), "dummy");
+    assert_eq!(Dummy::plugin_type().as_str(), "computational");
+    assert_eq!(Dummy::inputs(), &["i_in"]);
+    assert_eq!(Dummy::outputs(), &["v_out"]);
+    assert_eq!(
+        Dummy::integration_method(),
+        Some(IntegrationMethod::RungeKutta)
+    );
+
+    let schema = Dummy::display_schema();
+    assert_eq!(schema.inputs, vec!["i_in"]);
+    assert_eq!(schema.outputs, vec!["v_out"]);
+    assert_eq!(schema.variables, vec!["x"]);
+}
+
+#[test]
+fn plugin_type_strings() {
+    assert_eq!(PluginType::Standard.as_str(), "standard");
+    assert_eq!(PluginType::Device.as_str(), "device");
+    assert_eq!(PluginType::Computational.as_str(), "computational");
+}
+
+#[test]
+fn integration_method_strings() {
+    assert_eq!(IntegrationMethod::RungeKutta.as_str(), "runge_kutta");
+    assert_eq!(IntegrationMethod::Euler.as_str(), "euler");
+    assert_eq!(IntegrationMethod::Custom.as_str(), "custom");
+}
+
+#[test]
+fn integration_method_default_non_computational() {
+    assert_eq!(StandardDummy::plugin_type(), PluginType::Standard);
+    assert_eq!(StandardDummy::integration_method(), None);
 }

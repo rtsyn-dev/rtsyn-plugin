@@ -1,8 +1,11 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::ffi::c_void;
 
 pub mod prelude;
+pub mod numerics;
 pub mod ui;
+pub mod api;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PluginId(pub u64);
@@ -146,3 +149,49 @@ pub struct PluginApi {
 }
 
 pub const RTSYN_PLUGIN_API_SYMBOL: &str = "rtsyn_plugin_api";
+
+pub type Rk4DerivFn =
+    extern "C" fn(state: *const f64, deriv: *mut f64, n: usize, user_data: *mut c_void);
+
+#[no_mangle]
+pub extern "C" fn rtsyn_plugin_rk4_step_n(
+    state: *mut f64,
+    n: usize,
+    dt: f64,
+    deriv_fn: Option<Rk4DerivFn>,
+    user_data: *mut c_void,
+) {
+    if state.is_null() || n == 0 || !dt.is_finite() {
+        return;
+    }
+    let Some(deriv_fn) = deriv_fn else {
+        return;
+    };
+
+    let state_slice = unsafe { std::slice::from_raw_parts_mut(state, n) };
+    let mut k1 = vec![0.0_f64; n];
+    let mut k2 = vec![0.0_f64; n];
+    let mut k3 = vec![0.0_f64; n];
+    let mut k4 = vec![0.0_f64; n];
+    let mut tmp = vec![0.0_f64; n];
+
+    deriv_fn(state_slice.as_ptr(), k1.as_mut_ptr(), n, user_data);
+    for i in 0..n {
+        tmp[i] = state_slice[i] + 0.5 * dt * k1[i];
+    }
+
+    deriv_fn(tmp.as_ptr(), k2.as_mut_ptr(), n, user_data);
+    for i in 0..n {
+        tmp[i] = state_slice[i] + 0.5 * dt * k2[i];
+    }
+
+    deriv_fn(tmp.as_ptr(), k3.as_mut_ptr(), n, user_data);
+    for i in 0..n {
+        tmp[i] = state_slice[i] + dt * k3[i];
+    }
+
+    deriv_fn(tmp.as_ptr(), k4.as_mut_ptr(), n, user_data);
+    for i in 0..n {
+        state_slice[i] += (dt / 6.0) * (k1[i] + 2.0 * k2[i] + 2.0 * k3[i] + k4[i]);
+    }
+}

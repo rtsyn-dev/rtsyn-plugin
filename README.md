@@ -1,29 +1,26 @@
 # RTSyn Plugin
 
-A Rust crate for developing plugins for **RTSyn**. The plugins can be developed in _Rust_, _C_ and _C++_.
+Rust crate for developing RTSyn plugins with the descriptor/runtime API.
 
-## Dependences
+## Dependencies
 
-- Rust toolchain (stable) with Cargo
+- Stable Rust + Cargo
 
-Install Rust via rustup:
+## Template Generator
 
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
-
-Then ensure your environment is loaded:
-
-```bash
-source "$HOME/.cargo/env"
-```
-
-## Usage
-
-For creating a plugin, execute the following script to interactively create a template.
+Use the interactive template-based generator to create plugin scaffolds:
+- Rust (`PluginDescriptor` + `PluginRuntime` + `export_plugin!`)
+- C core + Rust wrapper (opaque state pattern)
+- C++ core + Rust wrapper (opaque state pattern)
 
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/rtsyn-dev/rtsyn-plugin/refs/heads/main/scripts/plugin_template.sh | sh
+./scripts/plugin_template.sh
 ```
 
-Then after implementing the functions, import the root folder of the plugin from **RTSyn**.
+The generated scaffold includes:
+- `plugin.toml` with `kind` and library name
+- `Cargo.toml` (`cdylib`)
+- `src/lib.rs` with minimal plugin logic and behavior flags (`loads_started`, `supports_start_stop`, `supports_restart`)
+- for C/C++: `src/plugin.h` + `src/plugin.c|cpp` and `build.rs`
+
+For computational Rust plugins, `rtsyn_plugin::numerics::rk4_step` is available so users only implement the derivative function.
