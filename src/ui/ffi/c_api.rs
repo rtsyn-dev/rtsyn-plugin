@@ -97,15 +97,15 @@ pub extern "C" fn rtsyn_ui_field_text(
             Ok(s) => s,
             Err(_) => return ptr::null_mut(),
         };
-        
+
         let mut field = ConfigField::text(key, label);
-        
+
         if !default_value.is_null() {
             if let Ok(s) = CStr::from_ptr(default_value).to_str() {
                 field = field.default_value(Value::String(s.to_string()));
             }
         }
-        
+
         Box::into_raw(Box::new(field)) as *mut RTSynConfigField
     }
 }
@@ -130,12 +130,12 @@ pub extern "C" fn rtsyn_ui_field_integer(
             Ok(s) => s,
             Err(_) => return ptr::null_mut(),
         };
-        
+
         let field = ConfigField::integer(key, label)
             .min(min)
             .max(max)
             .default_value(Value::from(default_value));
-        
+
         Box::into_raw(Box::new(field)) as *mut RTSynConfigField
     }
 }
@@ -160,12 +160,12 @@ pub extern "C" fn rtsyn_ui_field_float(
             Ok(s) => s,
             Err(_) => return ptr::null_mut(),
         };
-        
+
         let field = ConfigField::float(key, label)
             .min_f(min)
             .max_f(max)
             .default_value(Value::from(default_value));
-        
+
         Box::into_raw(Box::new(field)) as *mut RTSynConfigField
     }
 }
@@ -188,10 +188,9 @@ pub extern "C" fn rtsyn_ui_field_boolean(
             Ok(s) => s,
             Err(_) => return ptr::null_mut(),
         };
-        
-        let field = ConfigField::boolean(key, label)
-            .default_value(Value::Bool(default_value != 0));
-        
+
+        let field = ConfigField::boolean(key, label).default_value(Value::Bool(default_value != 0));
+
         Box::into_raw(Box::new(field)) as *mut RTSynConfigField
     }
 }
@@ -215,22 +214,22 @@ pub extern "C" fn rtsyn_ui_field_filepath(
             Ok(s) => s,
             Err(_) => return ptr::null_mut(),
         };
-        
+
         let file_mode = match mode {
             RTSYN_FILE_MODE_OPEN => FileMode::OpenFile,
             RTSYN_FILE_MODE_SAVE => FileMode::SaveFile,
             RTSYN_FILE_MODE_FOLDER => FileMode::SelectFolder,
             _ => FileMode::OpenFile,
         };
-        
+
         let mut field = ConfigField::filepath(key, label).mode(file_mode);
-        
+
         if !default_path.is_null() {
             if let Ok(s) = CStr::from_ptr(default_path).to_str() {
                 field = field.default_value(Value::String(s.to_string()));
             }
         }
-        
+
         Box::into_raw(Box::new(field)) as *mut RTSynConfigField
     }
 }
@@ -349,22 +348,22 @@ mod tests {
     #[test]
     fn test_schema_to_json() {
         let schema = rtsyn_ui_schema_new();
-        
+
         let key = CString::new("name").unwrap();
         let label = CString::new("Name").unwrap();
         let field = rtsyn_ui_field_text(key.as_ptr(), label.as_ptr(), ptr::null());
-        
+
         rtsyn_ui_schema_add_field(schema, field);
-        
+
         let json = rtsyn_ui_schema_to_json(schema);
         assert!(!json.is_null());
-        
+
         unsafe {
             let json_str = CStr::from_ptr(json).to_str().unwrap();
             assert!(json_str.contains("name"));
             assert!(json_str.contains("Name"));
         }
-        
+
         rtsyn_string_free(json);
         rtsyn_ui_schema_free(schema);
     }
@@ -374,13 +373,13 @@ mod tests {
         let pattern = CString::new("in_{}").unwrap();
         let json = rtsyn_behavior_to_json(1, 0, 2, pattern.as_ptr(), 0, 1, 0);
         assert!(!json.is_null());
-        
+
         unsafe {
             let json_str = CStr::from_ptr(json).to_str().unwrap();
             assert!(json_str.contains("behavior"));
             assert!(json_str.contains("connection_dependent"));
         }
-        
+
         rtsyn_string_free(json);
     }
 }

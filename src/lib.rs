@@ -2,10 +2,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::ffi::c_void;
 
-pub mod prelude;
-pub mod numerics;
-pub mod ui;
 pub mod api;
+pub mod numerics;
+pub mod prelude;
+pub mod ui;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PluginId(pub u64);
@@ -143,12 +143,22 @@ pub struct PluginApi {
     pub set_config_json: extern "C" fn(handle: *mut std::ffi::c_void, data: *const u8, len: usize),
     pub set_input:
         extern "C" fn(handle: *mut std::ffi::c_void, name: *const u8, len: usize, value: f64),
+    pub resolve_input_index:
+        Option<extern "C" fn(handle: *mut std::ffi::c_void, name: *const u8, len: usize) -> i32>,
+    pub set_input_by_index:
+        Option<extern "C" fn(handle: *mut std::ffi::c_void, index: usize, value: f64)>,
     pub process: extern "C" fn(handle: *mut std::ffi::c_void, tick: u64, period_seconds: f64),
     pub get_output:
         extern "C" fn(handle: *mut std::ffi::c_void, name: *const u8, len: usize) -> f64,
+    pub resolve_output_index:
+        Option<extern "C" fn(handle: *mut std::ffi::c_void, name: *const u8, len: usize) -> i32>,
+    pub get_output_by_index:
+        Option<extern "C" fn(handle: *mut std::ffi::c_void, index: usize) -> f64>,
 }
 
 pub const RTSYN_PLUGIN_API_SYMBOL: &str = "rtsyn_plugin_api";
+pub const RTSYN_PLUGIN_ABI_VERSION_SYMBOL: &str = "rtsyn_plugin_abi_version";
+pub const RTSYN_PLUGIN_ABI_VERSION: u32 = 2;
 
 pub type Rk4DerivFn =
     extern "C" fn(state: *const f64, deriv: *mut f64, n: usize, user_data: *mut c_void);

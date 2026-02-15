@@ -225,6 +225,43 @@ macro_rules! export_plugin {
             }
         }
 
+        extern "C" fn resolve_input_index(
+            _handle: *mut std::ffi::c_void,
+            name: *const u8,
+            len: usize,
+        ) -> i32 {
+            if name.is_null() || len == 0 {
+                return -1;
+            }
+            let slice = unsafe { std::slice::from_raw_parts(name, len) };
+            let Ok(key) = std::str::from_utf8(slice) else {
+                return -1;
+            };
+            static INPUT_INDEX: std::sync::OnceLock<
+                std::collections::HashMap<&'static str, i32>,
+            > = std::sync::OnceLock::new();
+            let index = INPUT_INDEX.get_or_init(|| {
+                <$plugin_ty as $crate::api::PluginDescriptor>::inputs()
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, key)| (*key, idx as i32))
+                    .collect()
+            });
+            index.get(key).copied().unwrap_or(-1)
+        }
+
+        extern "C" fn set_input_by_index(handle: *mut std::ffi::c_void, index: usize, value: f64) {
+            if handle.is_null() {
+                return;
+            }
+            let Some(name) = <$plugin_ty as $crate::api::PluginDescriptor>::inputs().get(index) else {
+                return;
+            };
+            let instance = unsafe { &mut *(handle as *mut $plugin_ty) };
+            let v = if value.is_finite() { value } else { 0.0 };
+            <$plugin_ty as $crate::api::PluginRuntime>::set_input_value(instance, name, v);
+        }
+
         extern "C" fn process(handle: *mut std::ffi::c_void, tick: u64, period_seconds: f64) {
             if handle.is_null() {
                 return;
@@ -266,6 +303,47 @@ macro_rules! export_plugin {
             0.0
         }
 
+        extern "C" fn resolve_output_index(
+            _handle: *mut std::ffi::c_void,
+            name: *const u8,
+            len: usize,
+        ) -> i32 {
+            if name.is_null() || len == 0 {
+                return -1;
+            }
+            let slice = unsafe { std::slice::from_raw_parts(name, len) };
+            let Ok(key) = std::str::from_utf8(slice) else {
+                return -1;
+            };
+            static OUTPUT_INDEX: std::sync::OnceLock<
+                std::collections::HashMap<&'static str, i32>,
+            > = std::sync::OnceLock::new();
+            let index = OUTPUT_INDEX.get_or_init(|| {
+                <$plugin_ty as $crate::api::PluginDescriptor>::outputs()
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, key)| (*key, idx as i32))
+                    .collect()
+            });
+            index.get(key).copied().unwrap_or(-1)
+        }
+
+        extern "C" fn get_output_by_index(handle: *mut std::ffi::c_void, index: usize) -> f64 {
+            if handle.is_null() {
+                return 0.0;
+            }
+            let Some(name) = <$plugin_ty as $crate::api::PluginDescriptor>::outputs().get(index) else {
+                return 0.0;
+            };
+            let instance = unsafe { &mut *(handle as *mut $plugin_ty) };
+            <$plugin_ty as $crate::api::PluginRuntime>::get_output_value(instance, name)
+        }
+
+        #[no_mangle]
+        pub extern "C" fn rtsyn_plugin_abi_version() -> u32 {
+            $crate::RTSYN_PLUGIN_ABI_VERSION
+        }
+
         #[no_mangle]
         pub extern "C" fn rtsyn_plugin_api() -> *const $crate::PluginApi {
             static API: $crate::PluginApi = $crate::PluginApi {
@@ -279,8 +357,12 @@ macro_rules! export_plugin {
                 ui_schema_json: Some(ui_schema_json),
                 set_config_json,
                 set_input,
+                resolve_input_index: Some(resolve_input_index),
+                set_input_by_index: Some(set_input_by_index),
                 process,
                 get_output,
+                resolve_output_index: Some(resolve_output_index),
+                get_output_by_index: Some(get_output_by_index),
             };
             &API as *const $crate::PluginApi
         }

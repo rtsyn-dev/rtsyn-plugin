@@ -3,3 +3,4 @@ kind = "__PLUGIN_KIND__"
 version = "0.1.0"
 description = "__DESCRIPTION__"
 library = "__LIBRARY_NAME__"
+api_version = 2

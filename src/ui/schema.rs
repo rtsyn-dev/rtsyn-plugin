@@ -121,14 +121,20 @@ impl ConfigField {
     }
 
     pub fn max_length(mut self, max: usize) -> Self {
-        if let FieldType::Text { ref mut max_length, .. } = self.field_type {
+        if let FieldType::Text {
+            ref mut max_length, ..
+        } = self.field_type
+        {
             *max_length = Some(max);
         }
         self
     }
 
     pub fn multiline(mut self) -> Self {
-        if let FieldType::Text { ref mut multiline, .. } = self.field_type {
+        if let FieldType::Text {
+            ref mut multiline, ..
+        } = self.field_type
+        {
             *multiline = true;
         }
         self
@@ -149,7 +155,10 @@ impl ConfigField {
     }
 
     pub fn step(mut self, step: i64) -> Self {
-        if let FieldType::Integer { step: ref mut s, .. } = self.field_type {
+        if let FieldType::Integer {
+            step: ref mut s, ..
+        } = self.field_type
+        {
             *s = step;
         }
         self
@@ -170,35 +179,52 @@ impl ConfigField {
     }
 
     pub fn step_f(mut self, step: f64) -> Self {
-        if let FieldType::Float { step: ref mut s, .. } = self.field_type {
+        if let FieldType::Float {
+            step: ref mut s, ..
+        } = self.field_type
+        {
             *s = step;
         }
         self
     }
 
     pub fn mode(mut self, mode: FileMode) -> Self {
-        if let FieldType::FilePath { mode: ref mut m, .. } = self.field_type {
+        if let FieldType::FilePath {
+            mode: ref mut m, ..
+        } = self.field_type
+        {
             *m = mode;
         }
         self
     }
 
     pub fn filter(mut self, name: impl Into<String>, pattern: impl Into<String>) -> Self {
-        if let FieldType::FilePath { ref mut filters, .. } = self.field_type {
+        if let FieldType::FilePath {
+            ref mut filters, ..
+        } = self.field_type
+        {
             filters.push((name.into(), pattern.into()));
         }
         self
     }
 
     pub fn item_type(mut self, item_type: FieldType) -> Self {
-        if let FieldType::DynamicList { item_type: ref mut it, .. } = self.field_type {
+        if let FieldType::DynamicList {
+            item_type: ref mut it,
+            ..
+        } = self.field_type
+        {
             *it = Box::new(item_type);
         }
         self
     }
 
     pub fn add_label(mut self, label: impl Into<String>) -> Self {
-        if let FieldType::DynamicList { add_label: ref mut al, .. } = self.field_type {
+        if let FieldType::DynamicList {
+            add_label: ref mut al,
+            ..
+        } = self.field_type
+        {
             *al = label.into();
         }
         self
@@ -347,7 +373,11 @@ mod tests {
             })
             .add_label("Add column");
 
-        if let FieldType::DynamicList { item_type, add_label } = field.field_type {
+        if let FieldType::DynamicList {
+            item_type,
+            add_label,
+        } = field.field_type
+        {
             assert_eq!(add_label, "Add column");
             if let FieldType::Text { max_length, .. } = *item_type {
                 assert_eq!(max_length, Some(50));
@@ -363,8 +393,7 @@ mod tests {
     fn ui_schema_serialization() {
         let schema = UISchema::new()
             .field(
-                ConfigField::text("name", "Name")
-                    .default_value(Value::String("test".to_string())),
+                ConfigField::text("name", "Name").default_value(Value::String("test".to_string())),
             )
             .field(ConfigField::boolean("enabled", "Enabled"));
 
